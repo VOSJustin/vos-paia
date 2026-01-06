@@ -1,239 +1,293 @@
-"use client";
+'use client'
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface Message {
-  role: "user" | "assistant";
-  content: string;
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
 }
 
-// Onboarding flow steps
-const ONBOARDING_STEPS = [
+interface UserData {
+  name: string
+  focusArea: string
+  obstacles: string[]
+}
+
+interface FileInfo {
+  name: string
+  content: string
+  path: string
+}
+
+const COLORS = {
+  background: '#2D3339',
+  surface: '#3D4449',
+  surfaceLight: '#4A5158',
+  userBubble: '#8B4513',
+  userBubbleHover: '#A0522D',
+  text: '#FFFFFF',
+  textMuted: '#9CA3AF',
+  accent: '#8B4513',
+  border: '#4A5158',
+}
+
+const ONBOARDING_SCRIPT = [
   {
-    trigger: "START",
-    message: "Welcome! I am FELICIA, your Personal AI Assistant.\n\nBefore we begin, I would like to get to know you a little. This helps me become truly YOUR assistant, not just a generic chatbot.\n\nShall we begin?",
-    expectsResponse: true,
+    id: 'welcome',
+    message: "Hey there! 🌸 I'm FELICIA, your Personal AI Assistant. I live right here on your device — which means everything we talk about stays completely private. No cloud, no data harvesting, just you and me.\n\nBefore we dive in, I'd love to learn a bit about you. What's your name?",
+    expectsInput: true,
+    inputType: 'text' as const,
+    placeholder: 'Enter your name...'
   },
   {
-    trigger: "NAME",
-    message: "Wonderful! Let us start simple.\n\nWhat should I call you?",
-    expectsResponse: true,
-    saveAs: "userName",
+    id: 'greeting',
+    message: (data: UserData) => `Nice to meet you, ${data.name}! 😊\n\nI'm here to help you think, learn, and get things done. Think of me as your personal thinking partner — one that actually remembers what matters to you.\n\nSo tell me, what's the main area you'd like to focus on? Pick one:`,
+    expectsInput: true,
+    inputType: 'choice' as const,
+    choices: ['📚 Learning & Growth', '⚡ Productivity & Tasks', '💡 Creative Projects', '🎯 Goal Planning', '🔧 Something Else']
   },
   {
-    trigger: "AREA",
-    message: "Nice to meet you, {userName}!\n\nHere is an important question:\n\nIf I could genuinely help you with ONE area of your life over the next year - really make a difference - what would that area be?\n\nDo not overthink it. Just whatever comes to mind first.",
-    expectsResponse: true,
-    saveAs: "focusArea",
+    id: 'focus_followup',
+    message: (data: UserData) => `${data.focusArea.includes('Learning') ? 'A fellow learner!' : data.focusArea.includes('Productivity') ? 'Getting things done — I love it!' : data.focusArea.includes('Creative') ? 'Creativity is my favorite!' : data.focusArea.includes('Goal') ? 'Big picture thinking!' : 'Interesting!'} I'll keep that in mind.\n\nNow, what usually gets in your way? What makes it hard to make progress? (Pick all that apply)`,
+    expectsInput: true,
+    inputType: 'multi-choice' as const,
+    choices: ['🤯 Too many distractions', '😵 Information overload', '🦥 Procrastination', '🤔 Not sure where to start', '⏰ Not enough time', '😰 Feeling overwhelmed']
   },
   {
-    trigger: "OBSTACLE",
-    message: "That makes a lot of sense.\n\nWhen it comes to {focusArea}, what usually gets in your way?\n\nI do not mean external stuff like time or money. I mean internally. What is the pattern that trips you up?",
-    expectsResponse: true,
-    saveAs: "obstacle",
+    id: 'obstacles_response',
+    message: (data: UserData) => `Got it — ${data.obstacles.length > 2 ? "you've got a few battles to fight" : "that's totally normal"}. Here's the good news: I'm designed to help with exactly these things.\n\nUnlike cloud AIs that forget you exist between sessions, I can actually learn your patterns, remember your projects, and help you build momentum over time.\n\nReady to see what I can do?`,
+    expectsInput: true,
+    inputType: 'choice' as const,
+    choices: ['✨ Show me!', '🤔 Tell me more first']
   },
   {
-    trigger: "KNOWLEDGE",
-    message: "I hear you, {userName}. That is real, and I appreciate you sharing it.\n\nNow, here is where I become different from other AI:\n\nI can learn from YOUR documents - your notes, files, anything you want me to know about. This stays 100% private on YOUR computer.\n\nWould you like to connect a knowledge folder?\n\n(Type YES to set it up, or SKIP to do it later)",
-    expectsResponse: true,
+    id: 'capabilities',
+    message: `Here's what makes me different:\n\n🏠 **100% Local** — I run on YOUR device. Your thoughts never leave your computer.\n\n🧠 **I Remember** — Connect a knowledge folder and I'll actually learn from your notes, docs, and files.\n\n🔌 **Works Offline** — No internet? No problem. I'm always here.\n\n💰 **Free Forever** — No subscriptions, no token limits, no surprise bills.\n\nWant to connect a knowledge folder now, or just start chatting?`,
+    expectsInput: true,
+    inputType: 'choice' as const,
+    choices: ['📁 Connect Knowledge Folder', '💬 Just Start Chatting']
   },
   {
-    trigger: "FOLDER_SETUP",
-    message: "Great choice!\n\nTo connect your knowledge folder:\n\n1. Download the FELICIA Bridge app (I will give you the link)\n2. Create a folder anywhere on your computer\n3. Tell me the path (e.g., ~/Documents/Felicia-Knowledge)\n\nWhat folder path would you like to use?",
-    expectsResponse: true,
-    saveAs: "knowledgePath",
-  },
-  {
-    trigger: "COMPLETE",
-    message: "Perfect! I have saved your knowledge folder as:\n{knowledgePath}\n\nOnce you run the FELICIA Bridge, I will be able to read any documents you put there.\n\n---\n\nSetup complete, {userName}!\n\nI am now YOUR personal AI. I know your focus is {focusArea}, and I understand the challenges you face.\n\nHow can I help you today?",
-    expectsResponse: false,
-  },
-];
+    id: 'ready',
+    message: (data: UserData) => `Perfect! You're all set, ${data.name}. 🎉\n\nFrom now on, just type whatever's on your mind. I'm here to help you think through problems, organize ideas, learn new things, or just chat.\n\nOh, and see that 📁 button in the top right? That's where you can connect your knowledge folder anytime.\n\nSo... what's on your mind?`,
+    expectsInput: false,
+    isComplete: true
+  }
+]
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(0);
-  const [userData, setUserData] = useState<Record<string, string>>({});
-  const chatRef = useRef<HTMLDivElement>(null);
+  const router = useRouter()
+  const [messages, setMessages] = useState<Message[]>([])
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [userData, setUserData] = useState<UserData>({ name: '', focusArea: '', obstacles: [] })
+  const [onboardingStep, setOnboardingStep] = useState(0)
+  const [isOnboardingComplete, setIsOnboardingComplete] = useState(false)
+  const [aiStatus, setAiStatus] = useState<'checking' | 'connected' | 'offline'>('checking')
+  const [selectedChoices, setSelectedChoices] = useState<string[]>([])
+  const [folderConnected, setFolderConnected] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [knowledgeFiles, setKnowledgeFiles] = useState<FileInfo[]>([])
+  const [showFolderPanel, setShowFolderPanel] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Start onboarding on mount
   useEffect(() => {
-    const saved = localStorage.getItem("paia-onboarding-complete");
-    if (saved) {
-      const savedData = JSON.parse(localStorage.getItem("paia-user-data") || "{}");
-      setUserData(savedData);
-      setMessages([{
-        role: "assistant",
-        content: `Welcome back, ${savedData.userName || "friend"}! How can I help you today?`
-      }]);
-      setOnboardingStep(-1); // Skip onboarding
-    } else {
-      // Start onboarding
-      const firstStep = ONBOARDING_STEPS[0];
-      setMessages([{ role: "assistant", content: firstStep.message }]);
+    const checkAI = async () => {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'ping', conversationHistory: [] })
+        })
+        setAiStatus(response.ok ? 'connected' : 'offline')
+      } catch { setAiStatus('offline') }
     }
-  }, []);
+    checkAI()
+  }, [])
 
-  // Scroll to bottom
   useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }
-  }, [messages]);
+    const savedMessages = localStorage.getItem('paia-messages')
+    const savedUserData = localStorage.getItem('paia-userData')
+    const savedOnboardingComplete = localStorage.getItem('paia-onboardingComplete')
+    const savedOnboardingStep = localStorage.getItem('paia-onboardingStep')
+    if (savedMessages) setMessages(JSON.parse(savedMessages))
+    if (savedUserData) setUserData(JSON.parse(savedUserData))
+    if (savedOnboardingComplete === 'true') setIsOnboardingComplete(true)
+    if (savedOnboardingStep) setOnboardingStep(parseInt(savedOnboardingStep))
+  }, [])
 
-  const processOnboarding = (userInput: string) => {
-    const currentStep = ONBOARDING_STEPS[onboardingStep];
-    const nextStepIndex = onboardingStep + 1;
-    
-    // Save data if needed
-    let newUserData = { ...userData };
-    if (currentStep?.saveAs) {
-      newUserData[currentStep.saveAs] = userInput;
-      setUserData(newUserData);
-    }
+  useEffect(() => { if (messages.length > 0) localStorage.setItem('paia-messages', JSON.stringify(messages)) }, [messages])
+  useEffect(() => { if (userData.name) localStorage.setItem('paia-userData', JSON.stringify(userData)) }, [userData])
+  useEffect(() => { localStorage.setItem('paia-onboardingComplete', String(isOnboardingComplete)) }, [isOnboardingComplete])
+  useEffect(() => { localStorage.setItem('paia-onboardingStep', String(onboardingStep)) }, [onboardingStep])
 
-    // Handle special cases
-    if (onboardingStep === 4) { // Knowledge folder question
-      if (userInput.toLowerCase() === "skip") {
-        // Skip to complete
-        const completeStep = ONBOARDING_STEPS[6];
-        let msg = completeStep.message;
-        Object.entries(newUserData).forEach(([key, value]) => {
-          msg = msg.replace(new RegExp(`{${key}}`, "g"), value);
-        });
-        setMessages(prev => [...prev, { role: "assistant", content: msg }]);
-        localStorage.setItem("paia-onboarding-complete", "true");
-        localStorage.setItem("paia-user-data", JSON.stringify(newUserData));
-        setOnboardingStep(-1);
-        return;
+  useEffect(() => {
+    if (messages.length === 0 && !isOnboardingComplete) {
+      const firstStep = ONBOARDING_SCRIPT[0]
+      setMessages([{ id: 'onboarding-0', role: 'assistant', content: typeof firstStep.message === 'function' ? firstStep.message(userData) : firstStep.message, timestamp: new Date() }])
+    }
+  }, [])
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => { inputRef.current?.focus() }, [onboardingStep, isLoading])
+
+  const handleOnboardingInput = async (input: string) => {
+    const currentStep = ONBOARDING_SCRIPT[onboardingStep]
+    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: input, timestamp: new Date() }])
+    setInputValue('')
+    setSelectedChoices([])
+    const newUserData = { ...userData }
+    if (currentStep.id === 'welcome') newUserData.name = input
+    else if (currentStep.id === 'greeting') newUserData.focusArea = input
+    else if (currentStep.id === 'focus_followup') newUserData.obstacles = input.split(', ')
+    setUserData(newUserData)
+    const nextStepIndex = onboardingStep + 1
+    if (nextStepIndex < ONBOARDING_SCRIPT.length) {
+      setOnboardingStep(nextStepIndex)
+      const nextStep = ONBOARDING_SCRIPT[nextStepIndex]
+      setTimeout(() => {
+        setMessages(prev => [...prev, { id: `onboarding-${nextStepIndex}`, role: 'assistant', content: typeof nextStep.message === 'function' ? nextStep.message(newUserData) : nextStep.message, timestamp: new Date() }])
+        if (nextStep.isComplete) setIsOnboardingComplete(true)
+      }, 500)
+    }
+  }
+
+  const searchKnowledge = (query: string): string => {
+    if (knowledgeFiles.length === 0) return ''
+    const queryLower = query.toLowerCase()
+    const keywords = queryLower.split(/\s+/).filter(w => w.length > 2)
+    const relevantSnippets: { file: string; content: string; score: number }[] = []
+    for (const file of knowledgeFiles) {
+      const contentLower = file.content.toLowerCase()
+      let score = 0
+      for (const keyword of keywords) { if (contentLower.includes(keyword)) score += (contentLower.match(new RegExp(keyword, 'g')) || []).length }
+      if (score > 0) {
+        const paragraphs = file.content.split(/\n\n+/)
+        for (const para of paragraphs) {
+          const paraLower = para.toLowerCase()
+          let paraScore = 0
+          for (const keyword of keywords) { if (paraLower.includes(keyword)) paraScore++ }
+          if (paraScore > 0) relevantSnippets.push({ file: file.name, content: para.slice(0, 500), score: paraScore })
+        }
       }
     }
+    relevantSnippets.sort((a, b) => b.score - a.score)
+    const topSnippets = relevantSnippets.slice(0, 3)
+    if (topSnippets.length === 0) return ''
+    return topSnippets.map(s => `[From ${s.file}]: ${s.content}`).join('\n\n')
+  }
 
-    // Move to next step
-    if (nextStepIndex < ONBOARDING_STEPS.length) {
-      const nextStep = ONBOARDING_STEPS[nextStepIndex];
-      let msg = nextStep.message;
-      
-      // Replace placeholders
-      Object.entries(newUserData).forEach(([key, value]) => {
-        msg = msg.replace(new RegExp(`{${key}}`, "g"), value);
-      });
+  const handleChat = async (input: string) => {
+    setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content: input, timestamp: new Date() }])
+    setInputValue('')
+    setIsLoading(true)
+    try {
+      const conversationHistory = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
+      const knowledgeContext = searchKnowledge(input)
+      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: input, conversationHistory, userData, knowledgeContext }) })
+      const data = await response.json()
+      setMessages(prev => [...prev, { id: `assistant-${Date.now()}`, role: 'assistant', content: data.response || 'I had trouble processing that. Could you try again?', timestamp: new Date() }])
+    } catch { setMessages(prev => [...prev, { id: `error-${Date.now()}`, role: 'assistant', content: "Hmm, I couldn't connect to my brain. Make sure Ollama is running! 🧠", timestamp: new Date() }]) }
+    finally { setIsLoading(false) }
+  }
 
-      setTimeout(() => {
-        setMessages(prev => [...prev, { role: "assistant", content: msg }]);
-        setOnboardingStep(nextStepIndex);
-        
-        // Check if onboarding complete
-        if (nextStep.trigger === "COMPLETE") {
-          localStorage.setItem("paia-onboarding-complete", "true");
-          localStorage.setItem("paia-user-data", JSON.stringify(newUserData));
-          setOnboardingStep(-1);
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); if (!inputValue.trim() || isLoading) return; if (!isOnboardingComplete) handleOnboardingInput(inputValue.trim()); else handleChat(inputValue.trim()) }
+  const handleChoiceSelect = (choice: string) => { const currentStep = ONBOARDING_SCRIPT[onboardingStep]; if (currentStep.inputType === 'multi-choice') setSelectedChoices(prev => prev.includes(choice) ? prev.filter(c => c !== choice) : [...prev, choice]); else handleOnboardingInput(choice) }
+  const handleMultiChoiceSubmit = () => { if (selectedChoices.length > 0) handleOnboardingInput(selectedChoices.join(', ')) }
+  const handleReset = () => { localStorage.removeItem('paia-messages'); localStorage.removeItem('paia-userData'); localStorage.removeItem('paia-onboardingComplete'); localStorage.removeItem('paia-onboardingStep'); window.location.reload() }
+
+  const handleConnectFolder = async () => {
+    if (!('showDirectoryPicker' in window)) { alert('Your browser does not support folder access. Please use Chrome, Edge, or Brave.'); return }
+    try {
+      // @ts-expect-error - showDirectoryPicker is not in TypeScript types yet
+      const dirHandle = await window.showDirectoryPicker()
+      const files: FileInfo[] = []
+      const readDirectory = async (handle: FileSystemDirectoryHandle, path: string = '') => {
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            const fileHandle = entry as FileSystemFileHandle
+            const file = await fileHandle.getFile()
+            if (/\.(txt|md|markdown|json|csv)$/i.test(file.name)) {
+              const content = await file.text()
+              files.push({ name: file.name, content: content.slice(0, 50000), path: path ? `${path}/${file.name}` : file.name })
+            }
+          } else if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
+            const subDir = entry as FileSystemDirectoryHandle
+            await readDirectory(subDir, path ? `${path}/${entry.name}` : entry.name)
+          }
         }
-      }, 500);
-    }
-  };
+      }
+      await readDirectory(dirHandle)
+      setKnowledgeFiles(files); setFolderName(dirHandle.name); setFolderConnected(true); setShowFolderPanel(false)
+    } catch (error) { if ((error as Error).name !== 'AbortError') { console.error('Error accessing folder:', error); alert('Could not access the folder. Please try again.') } }
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
-
-    const userMessage = input.trim();
-    setInput("");
-    setMessages(prev => [...prev, { role: "user", content: userMessage }]);
-
-    // If still onboarding
-    if (onboardingStep >= 0) {
-      processOnboarding(userMessage);
-      return;
-    }
-
-    // Regular chat - TODO: Connect to local Ollama via bridge
-    setIsLoading(true);
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: "I am not yet connected to your local AI. Please run the FELICIA Bridge on your computer to enable local AI responses.\n\nIn the meantime, I can help you with the setup!"
-      }]);
-      setIsLoading(false);
-    }, 1000);
-  };
-
-  const resetOnboarding = () => {
-    localStorage.removeItem("paia-onboarding-complete");
-    localStorage.removeItem("paia-user-data");
-    setUserData({});
-    setOnboardingStep(0);
-    const firstStep = ONBOARDING_STEPS[0];
-    setMessages([{ role: "assistant", content: firstStep.message }]);
-  };
+  const currentStep = ONBOARDING_SCRIPT[onboardingStep]
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col">
-      {/* Header */}
-      <header className="p-4 border-b border-slate-700 flex items-center justify-between">
+    <div className="min-h-screen flex flex-col" style={{ backgroundColor: COLORS.background }}>
+      <header className="border-b px-4 py-3 flex items-center justify-between" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
         <div className="flex items-center gap-3">
-          <span className="text-2xl">🌸</span>
+          <button onClick={() => router.push('/')} className="text-2xl hover:scale-110 transition-transform">🌸</button>
           <div>
-            <h1 className="font-semibold">FELICIA</h1>
-            <p className="text-xs text-slate-400">Personal AI Assistant</p>
+            <h1 className="font-semibold" style={{ color: COLORS.text }}>FELICIA</h1>
+            <div className="flex items-center gap-2 text-xs" style={{ color: COLORS.textMuted }}>
+              <span className={`w-2 h-2 rounded-full ${aiStatus === 'connected' ? 'bg-green-500' : aiStatus === 'offline' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+              {aiStatus === 'connected' ? 'Local AI Connected' : aiStatus === 'offline' ? 'AI Offline' : 'Checking...'}
+            </div>
           </div>
         </div>
-        <button
-          onClick={resetOnboarding}
-          className="text-xs text-slate-500 hover:text-slate-300"
-        >
-          Reset
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => folderConnected ? setShowFolderPanel(!showFolderPanel) : handleConnectFolder()} className="p-2 rounded-lg transition-colors flex items-center gap-2" style={{ backgroundColor: folderConnected ? COLORS.accent : COLORS.surfaceLight, color: COLORS.text }} title={folderConnected ? `Connected: ${folderName}` : 'Connect Knowledge Folder'}>
+            📁{folderConnected && <span className="text-xs px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: COLORS.userBubbleHover }}>{knowledgeFiles.length}</span>}
+          </button>
+          <button onClick={handleReset} className="p-2 rounded-lg transition-colors" style={{ backgroundColor: COLORS.surfaceLight, color: COLORS.textMuted }} title="Reset conversation">🔄</button>
+        </div>
       </header>
 
-      {/* Chat Area */}
-      <div ref={chatRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[80%] p-4 rounded-2xl whitespace-pre-wrap ${
-                msg.role === "user"
-                  ? "bg-gradient-to-r from-pink-500 to-purple-500 rounded-br-md"
-                  : "bg-slate-800 rounded-bl-md"
-              }`}
-            >
-              {msg.content}
+      {showFolderPanel && folderConnected && (
+        <div className="border-b p-4" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium" style={{ color: COLORS.text }}>📁 {folderName}</h3>
+            <button onClick={handleConnectFolder} className="text-xs px-2 py-1 rounded" style={{ backgroundColor: COLORS.surfaceLight, color: COLORS.textMuted }}>Change Folder</button>
+          </div>
+          <div className="text-sm" style={{ color: COLORS.textMuted }}>{knowledgeFiles.length} file(s) loaded:<div className="mt-1 max-h-20 overflow-y-auto">{knowledgeFiles.map((f, i) => <div key={i} className="text-xs py-0.5">📄 {f.path}</div>)}</div></div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((message) => (
+          <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user' ? 'rounded-br-md' : 'rounded-bl-md'}`} style={{ backgroundColor: message.role === 'user' ? COLORS.userBubble : COLORS.surfaceLight, color: COLORS.text }}>
+              <div className="whitespace-pre-wrap">{message.content}</div>
             </div>
           </div>
         ))}
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-slate-800 p-4 rounded-2xl rounded-bl-md">
-              <span className="animate-pulse">Thinking...</span>
-            </div>
-          </div>
-        )}
+        {isLoading && <div className="flex justify-start"><div className="rounded-2xl rounded-bl-md px-4 py-3" style={{ backgroundColor: COLORS.surfaceLight }}><div className="flex gap-1"><span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: COLORS.textMuted, animationDelay: '0ms' }}></span><span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: COLORS.textMuted, animationDelay: '150ms' }}></span><span className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: COLORS.textMuted, animationDelay: '300ms' }}></span></div></div></div>}
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-slate-700">
-        <div className="flex gap-3 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1 bg-slate-800 border border-slate-600 rounded-full px-6 py-3 focus:outline-none focus:border-pink-500"
-          />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 px-6 py-3 rounded-full font-medium disabled:opacity-50"
-          >
-            Send
-          </button>
+      {!isOnboardingComplete && currentStep?.inputType === 'choice' && (
+        <div className="px-4 pb-2"><div className="flex flex-wrap gap-2 justify-center">{currentStep.choices?.map((choice) => <button key={choice} onClick={() => handleChoiceSelect(choice)} className="px-4 py-2 rounded-full text-sm transition-all hover:scale-105" style={{ backgroundColor: COLORS.surfaceLight, color: COLORS.text, border: `1px solid ${COLORS.border}` }}>{choice}</button>)}</div></div>
+      )}
+
+      {!isOnboardingComplete && currentStep?.inputType === 'multi-choice' && (
+        <div className="px-4 pb-2">
+          <div className="flex flex-wrap gap-2 justify-center mb-2">{currentStep.choices?.map((choice) => <button key={choice} onClick={() => handleChoiceSelect(choice)} className="px-4 py-2 rounded-full text-sm transition-all" style={{ backgroundColor: selectedChoices.includes(choice) ? COLORS.userBubble : COLORS.surfaceLight, color: COLORS.text, border: `1px solid ${selectedChoices.includes(choice) ? COLORS.userBubble : COLORS.border}` }}>{choice}</button>)}</div>
+          {selectedChoices.length > 0 && <div className="flex justify-center"><button onClick={handleMultiChoiceSubmit} className="px-6 py-2 rounded-full text-sm font-medium transition-all hover:scale-105" style={{ backgroundColor: COLORS.userBubble, color: COLORS.text }}>Continue →</button></div>}
         </div>
-      </form>
+      )}
+
+      <div className="border-t p-4" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
+        <form onSubmit={handleSubmit} className="flex gap-3">
+          <input ref={inputRef} type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} placeholder={!isOnboardingComplete && currentStep?.inputType !== 'text' ? 'Or type your response...' : isOnboardingComplete ? 'Message FELICIA...' : currentStep?.placeholder || 'Type here...'} className="flex-1 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 transition-all" style={{ backgroundColor: COLORS.background, color: COLORS.text, borderColor: COLORS.border }} disabled={isLoading} />
+          <button type="submit" disabled={!inputValue.trim() || isLoading} className="px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105" style={{ backgroundColor: COLORS.userBubble, color: COLORS.text }}>{isLoading ? '...' : 'Send'}</button>
+        </form>
+      </div>
     </div>
-  );
+  )
 }

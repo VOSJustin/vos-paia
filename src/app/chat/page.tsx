@@ -203,24 +203,26 @@ export default function ChatPage() {
   const handleConnectFolder = async () => {
     if (!('showDirectoryPicker' in window)) { alert('Your browser does not support folder access. Please use Chrome, Edge, or Brave.'); return }
     try {
-      // @ts-expect-error - showDirectoryPicker is not in TypeScript types yet
-      const dirHandle = await window.showDirectoryPicker()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dirHandle = await (window as any).showDirectoryPicker()
       const files: FileInfo[] = []
-      const readDirectory = async (handle: FileSystemDirectoryHandle, path: string = '') => {
-        for await (const entry of handle.values()) {
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const readDirectory = async (handle: any, path: string = '') => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for await (const entry of handle.values() as AsyncIterable<any>) {
           if (entry.kind === 'file') {
-            const fileHandle = entry as FileSystemFileHandle
-            const file = await fileHandle.getFile()
+            const file = await entry.getFile()
             if (/\.(txt|md|markdown|json|csv)$/i.test(file.name)) {
               const content = await file.text()
               files.push({ name: file.name, content: content.slice(0, 50000), path: path ? `${path}/${file.name}` : file.name })
             }
           } else if (entry.kind === 'directory' && !entry.name.startsWith('.')) {
-            const subDir = entry as FileSystemDirectoryHandle
-            await readDirectory(subDir, path ? `${path}/${entry.name}` : entry.name)
+            await readDirectory(entry, path ? `${path}/${entry.name}` : entry.name)
           }
         }
       }
+      
       await readDirectory(dirHandle)
       setKnowledgeFiles(files); setFolderName(dirHandle.name); setFolderConnected(true); setShowFolderPanel(false)
     } catch (error) { if ((error as Error).name !== 'AbortError') { console.error('Error accessing folder:', error); alert('Could not access the folder. Please try again.') } }
